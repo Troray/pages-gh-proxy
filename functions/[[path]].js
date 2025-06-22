@@ -26,7 +26,7 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   
   // 检查是否是根路径访问或ping请求
-  if (url.pathname === "/" || url.pathname === "/ping") {
+  if (url.pathname === "/ping") {
     return new Response("pong", {
       status: 200,
       headers: { "Content-Type": "text/plain" }
