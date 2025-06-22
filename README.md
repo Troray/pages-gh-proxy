@@ -4,7 +4,17 @@
 
 ## ✨ 功能
 
-- **多域名代理**: 支持代理 `github.com`, `raw.githubusercontent.com`, `api.github.com`, `gist.github.com`, `objects.githubusercontent.com`, `github.githubassets.com`, `camo.githubusercontent.com` 等多个 GitHub 核心域名。
+- **多域名代理**: 支持代理 
+```
+github.com, 
+raw.githubusercontent.com, 
+api.github.com, 
+gist.github.com, 
+objects.githubusercontent.com, 
+github.githubassets.com, 
+camo.githubusercontent.com
+```
+等多个 GitHub 核心域名。
 - **URL 兼容**: 使用 `https://你的域名/?url=https://github.com/user/repo` 的格式进行访问。
 - **安全白名单**: 可以配置一个仓库白名单，只有名单内的仓库才能通过 `github.com` 被访问。
 - **重定向跟随**: 自动重写 HTTP 301/302 重定向，确保所有流量都通过代理。
