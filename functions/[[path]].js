@@ -55,7 +55,7 @@ export async function onRequest(context) {
   if (pathWithoutLeadingSlash.startsWith("https://")) {
     targetUrl = pathWithoutLeadingSlash;
   } else {
-    return new Response("无效的URL格式。请使用: https://你的域名/https://github.com/...", {
+    return new Response("404 Not Found", {
       status: 400,
       headers: { "Content-Type": "text/plain" }
     });
