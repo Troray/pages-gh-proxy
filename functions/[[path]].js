@@ -30,10 +30,10 @@ export async function onRequest(context) {
   // 如果没有 'url' 参数, 显示用法
   if (!targetUrlStr) {
     const usage = `GitHub Proxy is running.
-Usage: ${url.origin}/https://github.com/user/repo
+Usage: ${url.origin}/?url=https://github.com/user/repo
 
 Example:
-${url.origin}/https://api.github.com/repos/OpenListTeam/OpenList/releases`;
+${url.origin}/?url=https://api.github.com/repos/OpenListTeam/OpenList/releases`;
     return new Response(usage, {
       status: 200,
       headers: { "Content-Type": "text/plain; charset=utf-8" }
