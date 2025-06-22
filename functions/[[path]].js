@@ -33,6 +33,20 @@ export async function onRequest(context) {
     });
   }
   
+  // 添加调试端点
+  if (url.pathname === "/debug") {
+    const whitelist = getWhitelistFromEnv(env);
+    return new Response(JSON.stringify({
+      env: env ? Object.keys(env) : [],
+      GITHUB_WHITELIST: env?.GITHUB_WHITELIST || "未设置",
+      whitelist: whitelist,
+      whitelistLength: whitelist.length
+    }, null, 2), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  
   // 提取目标GitHub URL
   const pathWithoutLeadingSlash = url.pathname.substring(1);
   let targetUrl;
