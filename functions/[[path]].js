@@ -97,11 +97,18 @@ export async function onRequest(context) {
     }
     
     // 检查仓库是否在白名单中
-    if (repoPath && !whitelist.includes(repoPath) && !whitelist.includes("*/*")) {
-      return new Response("该仓库不在白名单中", {
-        status: 403,
-        headers: { "Content-Type": "text/plain" }
-      });
+    if (repoPath) {
+      const [owner] = repoPath.split('/');
+      const isAllowed = whitelist.includes(repoPath) ||
+                        whitelist.includes('*/*') ||
+                        (owner && whitelist.includes(`${owner}/*`));
+
+      if (!isAllowed) {
+        return new Response("该仓库不在白名单中", {
+          status: 403,
+          headers: { "Content-Type": "text/plain" }
+        });
+      }
     }
   }
   
@@ -146,9 +153,9 @@ function getWhitelistFromEnv(env) {
   
   // 检查环境变量中是否有设置白名单
   if (env && env.GITHUB_WHITELIST) {
-    // 分割环境变量值为数组
+    // 分割环境变量值为数组 (同时支持半角和全角逗号)
     const whitelistStr = env.GITHUB_WHITELIST;
-    const whitelistItems = whitelistStr.split(',').map(item => item.trim());
+    const whitelistItems = whitelistStr.split(/,|，/).map(item => item.trim());
     
     // 添加到白名单数组
     whitelist.push(...whitelistItems);
