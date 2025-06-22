@@ -75,19 +75,16 @@ function getRepoFromUrl(url) {
 export async function onRequest(context) {
   const { request } = context;
   const requestUrl = new URL(request.url);
-  const path = requestUrl.pathname;
 
-  // 从路径中提取目标 URL，例如 /https://github.com/user/repo -> https://github.com/user/repo
-  let targetUrlStr = path.substring(1);
+  // 从 `url` 查询参数中获取目标 URL
+  const targetUrlStr = requestUrl.searchParams.get('url');
 
-  // 如果路径是 /favicon.ico 或 /，直接返回，避免不必要的处理
-  if (path === '/favicon.ico' || path === '/') {
-    return new Response('欢迎使用 GitHub Proxy. 请使用格式 /<URL> 进行访问。', { status: 200 });
-  }
-
-  // 简单地通过添加协议头来处理那些省略了协议的URL
-  if (!targetUrlStr.startsWith('http://') && !targetUrlStr.startsWith('https://')) {
-    targetUrlStr = 'https://' + targetUrlStr;
+  // 如果没有提供 url 参数，则显示用法
+  if (!targetUrlStr) {
+    return new Response('欢迎使用 GitHub Proxy. 请使用格式 /?url=<URL> 进行访问。', {
+      status: 200,
+      headers: {'Content-Type': 'text/plain; charset=utf-8'}
+    });
   }
   
   try {
@@ -112,15 +109,11 @@ export async function onRequest(context) {
     }
 
     // 3. 构造代理请求
-    // 复制原始请求的 headers
     const proxyHeaders = new Headers(request.headers);
-    // 设置正确的主机头，这对于很多网站是必需的
     proxyHeaders.set('Host', targetUrl.hostname);
-    // 有些服务依赖 Referer header
     proxyHeaders.set('Referer', targetUrl.toString());
 
     // 4. 发起 fetch 请求到目标服务器
-    // 设置 `redirect: 'manual'` 是为了手动处理重定向，从而可以重写 Location 头
     const response = await fetch(targetUrl.toString(), {
       method: request.method,
       headers: proxyHeaders,
@@ -135,8 +128,8 @@ export async function onRequest(context) {
     if ([301, 302, 307, 308].includes(response.status)) {
         let location = responseHeaders.get('Location');
         if (location) {
-            // 将重定向的 URL 重写为通过我们的代理访问的地址
-            const newLocation = `${requestUrl.origin}/${location}`;
+            // 将重定向的 URL 重写为通过我们的代理访问的地址，并进行URL编码
+            const newLocation = `${requestUrl.origin}/?url=${encodeURIComponent(location)}`;
             responseHeaders.set('Location', newLocation);
         }
     }
@@ -155,6 +148,6 @@ export async function onRequest(context) {
     });
 
   } catch (e) {
-    return new Response(`URL 格式无效或处理时发生错误: ${e.message}`, { status: 400 });
+    return new Response(`URL 格式无效或处理时发生错误: "${targetUrlStr}" -> ${e.message}`, { status: 400 });
   }
 }

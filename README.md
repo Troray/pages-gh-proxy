@@ -5,7 +5,7 @@
 ## ✨ 功能
 
 - **多域名代理**: 支持代理 `github.com`, `raw.githubusercontent.com`, `api.github.com`, `gist.github.com`, `objects.githubusercontent.com`, `github.githubassets.com`, `camo.githubusercontent.com` 等多个 GitHub 核心域名。
-- **URL 兼容**: 使用 `https://你的域名/https://github.com/user/repo` 的格式进行访问。
+- **URL 兼容**: 使用 `https://你的域名/?url=https://github.com/user/repo` 的格式进行访问。
 - **安全白名单**: 可以配置一个仓库白名单，只有名单内的仓库才能通过 `github.com` 被访问。
 - **重定向跟随**: 自动重写 HTTP 301/302 重定向，确保所有流量都通过代理。
 - **边缘计算**: 基于 Cloudflare 的全球边缘网络，延迟低，速度快。
@@ -53,13 +53,13 @@ const WHITELIST = [
 假设你的 Cloudflare Pages 域名是 `my-proxy.pages.dev`。
 
 - **访问 GitHub 仓库页面**:
-  `https://my-proxy.pages.dev/https://github.com/microsoft/vscode`
+  `https://my-proxy.pages.dev/?url=https://github.com/microsoft/vscode`
 
 - **访问 Raw 文件**:
-  `https://my-proxy.pages.dev/https://raw.githubusercontent.com/microsoft/vscode/main/package.json`
+  `https://my-proxy.pages.dev/?url=https://raw.githubusercontent.com/microsoft/vscode/main/package.json`
 
 - **访问 GitHub API**:
-  `https://my-proxy.pages.dev/https://api.github.com/repos/microsoft/vscode`
+  `https://my-proxy.pages.dev/?url=https://api.github.com/repos/microsoft/vscode`
 
 ## ⚠️ 限制
 
