@@ -7,3 +7,4 @@
 值：用户名/仓库名
 
 例如：`Troray/pages-gh-proxy`
+
