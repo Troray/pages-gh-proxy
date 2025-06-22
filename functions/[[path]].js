@@ -1,12 +1,11 @@
 /**
- * GitHub代理服务器
+ * GitHub代理服务器 (v2 - Query Parameter Mode)
  * 基于Cloudflare Pages Functions环境
  * 
  * 功能：
- * 1. 代理GitHub相关域名的请求
+ * 1. 通过URL查询参数 ?url=... 代理GitHub请求
  * 2. 支持通过环境变量设置白名单
- * 3. 支持ping检查和根路径说明
- * 4. 兼容被代理压缩的URL (https:/ -> https://)
+ * 3. 根路径提供清晰的用法说明
  */
 
 // GitHub相关域名
@@ -26,50 +25,34 @@ export async function onRequest(context) {
   const env = context.env;
   const url = new URL(request.url);
   
-  // 根路径或ping请求
-  if (url.pathname === "/" || url.pathname === "/ping") {
-    return new Response("GitHub Proxy is running.\nUsage: " + url.origin + "/https://github.com/user/repo", {
+  const targetUrlStr = url.searchParams.get('url');
+
+  // 如果没有 'url' 参数, 显示用法
+  if (!targetUrlStr) {
+    const usage = `GitHub Proxy is running.
+Usage: ${url.origin}/?url=https://github.com/user/repo
+
+Example:
+${url.origin}/?url=https://api.github.com/repos/OpenListTeam/OpenList/releases`;
+    return new Response(usage, {
       status: 200,
       headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
   }
-  
-  // 添加调试端点
-  if (url.pathname === "/debug") {
-    const whitelist = getWhitelistFromEnv(env);
-    return new Response(JSON.stringify({
-      env: env ? Object.keys(env) : [],
-      GITHUB_WHITELIST: env?.GITHUB_WHITELIST || "未设置",
-      whitelist: whitelist,
-      whitelistLength: whitelist.length
-    }, null, 2), {
-      status: 200,
-      headers: { "Content-Type": "application/json; charset=utf-8" }
-    });
-  }
-  
-  // 提取目标GitHub URL
-  let pathWithoutLeadingSlash = url.pathname.substring(1);
+
+  // 验证目标URL
   let targetUrl;
-  
-  // 处理本地代理可能压缩 'https://' 为 'https:/' 的情况
-  if (pathWithoutLeadingSlash.startsWith("https:/") && !pathWithoutLeadingSlash.startsWith("https://")) {
-    targetUrl = "https://" + pathWithoutLeadingSlash.substring(6); // 重建 URL
-  } else if (pathWithoutLeadingSlash.startsWith("https://")) {
-    targetUrl = pathWithoutLeadingSlash; // 标准情况
-  } else {
-    // URL格式不正确
-    return new Response("无效的URL格式。URL必须以 /https://... 格式提供。收到的路径: " + url.pathname, {
+  try {
+    targetUrl = new URL(targetUrlStr);
+  } catch (e) {
+    return new Response(`无效的目标URL: ${targetUrlStr}`, {
       status: 400,
       headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
   }
   
-  // 解析目标URL
-  const targetUrlObj = new URL(targetUrl);
-  
   // 检查是否是GitHub域名
-  if (!GITHUB_DOMAINS.includes(targetUrlObj.hostname)) {
+  if (!GITHUB_DOMAINS.includes(targetUrl.hostname)) {
     return new Response("仅支持GitHub相关域名", {
       status: 403,
       headers: { "Content-Type": "text/plain" }
@@ -81,34 +64,18 @@ export async function onRequest(context) {
   
   // 检查白名单 (如果有白名单设置)
   if (whitelist.length > 0) {
-    let repoPath = "";
-    
-    if (targetUrlObj.hostname === "github.com") {
-      const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
-      if (pathParts.length >= 2) {
-        repoPath = `${pathParts[0]}/${pathParts[1]}`;
-      }
-    } else if (targetUrlObj.hostname === "raw.githubusercontent.com") {
-      const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
-      if (pathParts.length >= 2) {
-        repoPath = `${pathParts[0]}/${pathParts[1]}`;
-      }
-    } else if (targetUrlObj.hostname === "api.github.com") {
-      const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
-      if (pathParts.length >= 3 && pathParts[0] === "repos") {
-        repoPath = `${pathParts[1]}/${pathParts[2]}`;
-      }
-    } else if (targetUrlObj.hostname === "gist.github.com") {
-      if (!whitelist.includes("*/*") && !whitelist.includes("gist/*")) {
-        return new Response("该仓库不在白名单中", { status: 403, headers: { "Content-Type": "text/plain" } });
-      }
-    }
+    let repoPath = getRepoPathFromUrl(targetUrl);
     
     if (repoPath) {
       const [owner] = repoPath.split('/');
       const isAllowed = whitelist.includes(repoPath) || whitelist.includes('*/*') || (owner && whitelist.includes(`${owner}/*`));
       if (!isAllowed) {
         return new Response(`该仓库不在白名单中: ${repoPath}`, { status: 403, headers: { "Content-Type": "text/plain" } });
+      }
+    } else {
+      // 如果无法从URL中提取仓库路径，但白名单已启用，则默认拒绝
+      if (!whitelist.includes('*/*')) {
+         return new Response(`无法从URL确定仓库路径，访问被拒绝: ${targetUrlStr}`, { status: 403, headers: { "Content-Type": "text/plain" } });
       }
     }
   }
@@ -119,9 +86,9 @@ export async function onRequest(context) {
     if (request.headers.get('accept')) cleanHeaders.set('accept', request.headers.get('accept'));
     if (request.headers.get('accept-language')) cleanHeaders.set('accept-language', request.headers.get('accept-language'));
     if (request.headers.get('content-type')) cleanHeaders.set('content-type', request.headers.get('content-type'));
-    cleanHeaders.set('User-Agent', 'Cloudflare-Pages-GitHub-Proxy/1.0');
+    cleanHeaders.set('User-Agent', 'Cloudflare-Pages-GitHub-Proxy/2.0');
     
-    const githubRequest = new Request(targetUrl, {
+    const githubRequest = new Request(targetUrl.toString(), {
       method: request.method,
       headers: cleanHeaders,
       body: request.body,
@@ -129,19 +96,6 @@ export async function onRequest(context) {
     });
     
     const githubResponse = await fetch(githubRequest);
-    
-    if (githubResponse.status === 404) {
-      const debugInfo = {
-        message: "GitHub API 返回 404. 请确认目标 URL 是否正确，以及仓库是否为公开可见。",
-        targetUrl: targetUrl,
-        githubResponse: { status: githubResponse.status, statusText: githubResponse.statusText },
-        requestHeadersSent: Object.fromEntries(cleanHeaders.entries())
-      };
-      return new Response(JSON.stringify(debugInfo, null, 2), {
-        status: 404,
-        headers: { "Content-Type": "application/json; charset=utf-8" }
-      });
-    }
     
     const responseHeaders = new Headers(githubResponse.headers);
     responseHeaders.set('Access-Control-Allow-Origin', '*');
@@ -154,12 +108,29 @@ export async function onRequest(context) {
       headers: responseHeaders,
     });
   } catch (error) {
-    console.error("代理到GitHub时出错:", error);
     return new Response(`代理到GitHub时出错: ${error.message}`, {
       status: 500,
       headers: { "Content-Type": "text/plain" }
     });
   }
+}
+
+/**
+ * 从不同格式的GitHub URL中提取 'owner/repo' 路径
+ */
+function getRepoPathFromUrl(targetUrl) {
+    const pathParts = targetUrl.pathname.split('/').filter(Boolean);
+    
+    if (targetUrl.hostname === "github.com" && pathParts.length >= 2) {
+      return `${pathParts[0]}/${pathParts[1]}`;
+    }
+    if (targetUrl.hostname === "raw.githubusercontent.com" && pathParts.length >= 2) {
+      return `${pathParts[0]}/${pathParts[1]}`;
+    }
+    if (targetUrl.hostname === "api.github.com" && pathParts.length >= 3 && pathParts[0] === "repos") {
+      return `${pathParts[1]}/${pathParts[2]}`;
+    }
+    return null; // 对于gist等其他域名，不提取路径
 }
 
 /**
