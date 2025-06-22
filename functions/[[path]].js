@@ -5,7 +5,8 @@
  * 功能：
  * 1. 代理GitHub相关域名的请求
  * 2. 支持通过环境变量设置白名单
- * 3. 支持ping检查
+ * 3. 支持ping检查和根路径说明
+ * 4. 兼容被代理压缩的URL (https:/ -> https://)
  */
 
 // GitHub相关域名
@@ -25,11 +26,11 @@ export async function onRequest(context) {
   const env = context.env;
   const url = new URL(request.url);
   
-  // 检查是否是根路径访问或ping请求
-  if (url.pathname === "/ping") {
-    return new Response("pong", {
+  // 根路径或ping请求
+  if (url.pathname === "/" || url.pathname === "/ping") {
+    return new Response("GitHub Proxy is running.\nUsage: " + url.origin + "/https://github.com/user/repo", {
       status: 200,
-      headers: { "Content-Type": "text/plain" }
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
   }
   
@@ -48,16 +49,19 @@ export async function onRequest(context) {
   }
   
   // 提取目标GitHub URL
-  const pathWithoutLeadingSlash = url.pathname.substring(1);
+  let pathWithoutLeadingSlash = url.pathname.substring(1);
   let targetUrl;
   
-  // 检查路径是否以https://开头
-  if (pathWithoutLeadingSlash.startsWith("https://")) {
-    targetUrl = pathWithoutLeadingSlash;
+  // 处理本地代理可能压缩 'https://' 为 'https:/' 的情况
+  if (pathWithoutLeadingSlash.startsWith("https:/") && !pathWithoutLeadingSlash.startsWith("https://")) {
+    targetUrl = "https://" + pathWithoutLeadingSlash.substring(6); // 重建 URL
+  } else if (pathWithoutLeadingSlash.startsWith("https://")) {
+    targetUrl = pathWithoutLeadingSlash; // 标准情况
   } else {
-    return new Response("404 Not Found", {
+    // URL格式不正确
+    return new Response("无效的URL格式。URL必须以 /https://... 格式提供。收到的路径: " + url.pathname, {
       status: 400,
-      headers: { "Content-Type": "text/plain" }
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
     });
   }
   
@@ -77,75 +81,46 @@ export async function onRequest(context) {
   
   // 检查白名单 (如果有白名单设置)
   if (whitelist.length > 0) {
-    // 从URL中提取用户名和仓库名
-    // 分析不同的GitHub URL格式
     let repoPath = "";
     
     if (targetUrlObj.hostname === "github.com") {
-      // https://github.com/用户名/仓库名
       const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
       if (pathParts.length >= 2) {
         repoPath = `${pathParts[0]}/${pathParts[1]}`;
       }
     } else if (targetUrlObj.hostname === "raw.githubusercontent.com") {
-      // https://raw.githubusercontent.com/用户名/仓库名/...
       const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
       if (pathParts.length >= 2) {
         repoPath = `${pathParts[0]}/${pathParts[1]}`;
       }
     } else if (targetUrlObj.hostname === "api.github.com") {
-      // https://api.github.com/repos/用户名/仓库名/...
       const pathParts = targetUrlObj.pathname.split('/').filter(Boolean);
       if (pathParts.length >= 3 && pathParts[0] === "repos") {
         repoPath = `${pathParts[1]}/${pathParts[2]}`;
       }
     } else if (targetUrlObj.hostname === "gist.github.com") {
-      // Gist URLs处理方式不同，因为它们不遵循相同的模式
-      // 对于gist.github.com，如果whitelist包含特殊条目，我们将允许所有访问
       if (!whitelist.includes("*/*") && !whitelist.includes("gist/*")) {
-        return new Response("该仓库不在白名单中", {
-          status: 403,
-          headers: { "Content-Type": "text/plain" }
-        });
+        return new Response("该仓库不在白名单中", { status: 403, headers: { "Content-Type": "text/plain" } });
       }
     }
     
-    // 检查仓库是否在白名单中
     if (repoPath) {
       const [owner] = repoPath.split('/');
-      const isAllowed = whitelist.includes(repoPath) ||
-                        whitelist.includes('*/*') ||
-                        (owner && whitelist.includes(`${owner}/*`));
-
+      const isAllowed = whitelist.includes(repoPath) || whitelist.includes('*/*') || (owner && whitelist.includes(`${owner}/*`));
       if (!isAllowed) {
-        return new Response(`该仓库不在白名单中: ${repoPath}`, {
-          status: 403,
-          headers: { "Content-Type": "text/plain" }
-        });
+        return new Response(`该仓库不在白名单中: ${repoPath}`, { status: 403, headers: { "Content-Type": "text/plain" } });
       }
     }
   }
   
   // 转发请求到GitHub
   try {
-    // 创建简化的请求头，避免某些请求头导致GitHub API拒绝请求
     const cleanHeaders = new Headers();
-    
-    // 只转发必要的请求头
-    if (request.headers.get('accept')) {
-      cleanHeaders.set('accept', request.headers.get('accept'));
-    }
-     if (request.headers.get('accept-language')) {
-      cleanHeaders.set('accept-language', request.headers.get('accept-language'));
-    }
-    if (request.headers.get('content-type')) {
-      cleanHeaders.set('content-type', request.headers.get('content-type'));
-    }
-    
-    // 设置标准的User-Agent
+    if (request.headers.get('accept')) cleanHeaders.set('accept', request.headers.get('accept'));
+    if (request.headers.get('accept-language')) cleanHeaders.set('accept-language', request.headers.get('accept-language'));
+    if (request.headers.get('content-type')) cleanHeaders.set('content-type', request.headers.get('content-type'));
     cleanHeaders.set('User-Agent', 'Cloudflare-Pages-GitHub-Proxy/1.0');
     
-    // 创建新的Request对象以转发
     const githubRequest = new Request(targetUrl, {
       method: request.method,
       headers: cleanHeaders,
@@ -153,34 +128,26 @@ export async function onRequest(context) {
       redirect: "follow",
     });
     
-    // 发送请求到GitHub
     const githubResponse = await fetch(githubRequest);
     
-    // 如果是404错误，添加调试信息到响应中
     if (githubResponse.status === 404) {
       const debugInfo = {
         message: "GitHub API 返回 404. 请确认目标 URL 是否正确，以及仓库是否为公开可见。",
         targetUrl: targetUrl,
-        githubResponse: {
-            status: githubResponse.status,
-            statusText: githubResponse.statusText
-        },
+        githubResponse: { status: githubResponse.status, statusText: githubResponse.statusText },
         requestHeadersSent: Object.fromEntries(cleanHeaders.entries())
       };
-      
       return new Response(JSON.stringify(debugInfo, null, 2), {
         status: 404,
         headers: { "Content-Type": "application/json; charset=utf-8" }
       });
     }
     
-    // 创建响应对象，并确保跨域头正确
     const responseHeaders = new Headers(githubResponse.headers);
     responseHeaders.set('Access-Control-Allow-Origin', '*');
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-    // 转发响应给客户端
     return new Response(githubResponse.body, {
       status: githubResponse.status,
       statusText: githubResponse.statusText,
@@ -197,21 +164,13 @@ export async function onRequest(context) {
 
 /**
  * 从环境变量中获取白名单
- * 环境变量格式：GITHUB_WHITELIST=repo1,repo2,repo3
- * 例如：GITHUB_WHITELIST=cloudflare/workers-sdk,AlistGo/alist,gist/*
  */
 function getWhitelistFromEnv(env) {
   const whitelist = [];
-  
-  // 检查环境变量中是否有设置白名单
   if (env && env.GITHUB_WHITELIST) {
-    // 分割环境变量值为数组 (同时支持半角和全角逗号)
     const whitelistStr = env.GITHUB_WHITELIST;
-    const whitelistItems = whitelistStr.split(/,|，/).map(item => item.trim());
-    
-    // 添加到白名单数组
+    const whitelistItems = whitelistStr.split(/,|，/).map(item => item.trim()).filter(Boolean);
     whitelist.push(...whitelistItems);
   }
-  
   return whitelist;
 }
