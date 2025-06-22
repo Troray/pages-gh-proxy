@@ -43,7 +43,7 @@ export async function onRequest(context) {
       whitelistLength: whitelist.length
     }, null, 2), {
       status: 200,
-      headers: { "Content-Type": "application/json" }
+      headers: { "Content-Type": "application/json; charset=utf-8" }
     });
   }
   
@@ -74,14 +74,6 @@ export async function onRequest(context) {
   
   // 从环境变量中获取白名单
   const whitelist = getWhitelistFromEnv(env);
-  
-  // 添加调试信息
-  console.log("调试信息:", {
-    targetUrl,
-    hostname: targetUrlObj.hostname,
-    whitelist,
-    hasWhitelist: whitelist.length > 0
-  });
   
   // 检查白名单 (如果有白名单设置)
   if (whitelist.length > 0) {
@@ -118,17 +110,6 @@ export async function onRequest(context) {
       }
     }
     
-    // 添加调试信息
-    console.log("白名单检查:", {
-      repoPath,
-      whitelist,
-      isInWhitelist: whitelist.includes(repoPath),
-      hasWildcard: whitelist.includes("*/*"),
-      owner: repoPath ? repoPath.split('/')[0] : null,
-      ownerWildcard: repoPath ? `${repoPath.split('/')[0]}/*` : null,
-      hasOwnerWildcard: repoPath ? whitelist.includes(`${repoPath.split('/')[0]}/*`) : false
-    });
-    
     // 检查仓库是否在白名单中
     if (repoPath) {
       const [owner] = repoPath.split('/');
@@ -137,7 +118,7 @@ export async function onRequest(context) {
                         (owner && whitelist.includes(`${owner}/*`));
 
       if (!isAllowed) {
-        return new Response("该仓库不在白名单中", {
+        return new Response(`该仓库不在白名单中: ${repoPath}`, {
           status: 403,
           headers: { "Content-Type": "text/plain" }
         });
@@ -147,28 +128,58 @@ export async function onRequest(context) {
   
   // 转发请求到GitHub
   try {
+    // 创建简化的请求头，避免某些请求头导致GitHub API拒绝请求
+    const cleanHeaders = new Headers();
+    
+    // 只转发必要的请求头
+    if (request.headers.get('accept')) {
+      cleanHeaders.set('accept', request.headers.get('accept'));
+    }
+     if (request.headers.get('accept-language')) {
+      cleanHeaders.set('accept-language', request.headers.get('accept-language'));
+    }
+    if (request.headers.get('content-type')) {
+      cleanHeaders.set('content-type', request.headers.get('content-type'));
+    }
+    
+    // 设置标准的User-Agent
+    cleanHeaders.set('User-Agent', 'Cloudflare-Pages-GitHub-Proxy/1.0');
+    
     // 创建新的Request对象以转发
     const githubRequest = new Request(targetUrl, {
       method: request.method,
-      headers: request.headers,
+      headers: cleanHeaders,
       body: request.body,
       redirect: "follow",
     });
     
-    console.log("转发请求到:", targetUrl);
-    
     // 发送请求到GitHub
     const githubResponse = await fetch(githubRequest);
     
-    console.log("GitHub响应:", {
-      status: githubResponse.status,
-      statusText: githubResponse.statusText,
-      headers: Object.fromEntries(githubResponse.headers.entries())
-    });
+    // 如果是404错误，添加调试信息到响应中
+    if (githubResponse.status === 404) {
+      const debugInfo = {
+        message: "GitHub API 返回 404. 请确认目标 URL 是否正确，以及仓库是否为公开可见。",
+        targetUrl: targetUrl,
+        githubResponse: {
+            status: githubResponse.status,
+            statusText: githubResponse.statusText
+        },
+        requestHeadersSent: Object.fromEntries(cleanHeaders.entries())
+      };
+      
+      return new Response(JSON.stringify(debugInfo, null, 2), {
+        status: 404,
+        headers: { "Content-Type": "application/json; charset=utf-8" }
+      });
+    }
     
-    // 创建响应对象
+    // 创建响应对象，并确保跨域头正确
     const responseHeaders = new Headers(githubResponse.headers);
-    
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
     // 转发响应给客户端
     return new Response(githubResponse.body, {
       status: githubResponse.status,
@@ -203,4 +214,4 @@ function getWhitelistFromEnv(env) {
   }
   
   return whitelist;
-} 
+}
