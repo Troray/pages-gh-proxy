@@ -61,6 +61,14 @@ export async function onRequest(context) {
   // 从环境变量中获取白名单
   const whitelist = getWhitelistFromEnv(env);
   
+  // 添加调试信息
+  console.log("调试信息:", {
+    targetUrl,
+    hostname: targetUrlObj.hostname,
+    whitelist,
+    hasWhitelist: whitelist.length > 0
+  });
+  
   // 检查白名单 (如果有白名单设置)
   if (whitelist.length > 0) {
     // 从URL中提取用户名和仓库名
@@ -96,6 +104,17 @@ export async function onRequest(context) {
       }
     }
     
+    // 添加调试信息
+    console.log("白名单检查:", {
+      repoPath,
+      whitelist,
+      isInWhitelist: whitelist.includes(repoPath),
+      hasWildcard: whitelist.includes("*/*"),
+      owner: repoPath ? repoPath.split('/')[0] : null,
+      ownerWildcard: repoPath ? `${repoPath.split('/')[0]}/*` : null,
+      hasOwnerWildcard: repoPath ? whitelist.includes(`${repoPath.split('/')[0]}/*`) : false
+    });
+    
     // 检查仓库是否在白名单中
     if (repoPath) {
       const [owner] = repoPath.split('/');
@@ -122,8 +141,16 @@ export async function onRequest(context) {
       redirect: "follow",
     });
     
+    console.log("转发请求到:", targetUrl);
+    
     // 发送请求到GitHub
     const githubResponse = await fetch(githubRequest);
+    
+    console.log("GitHub响应:", {
+      status: githubResponse.status,
+      statusText: githubResponse.statusText,
+      headers: Object.fromEntries(githubResponse.headers.entries())
+    });
     
     // 创建响应对象
     const responseHeaders = new Headers(githubResponse.headers);
